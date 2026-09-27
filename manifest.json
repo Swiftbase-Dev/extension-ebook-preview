@@ -1,0 +1,20 @@
+{
+  "id": "ebook-preview",
+  "name": "E-book Sample Preview Widget",
+  "version": "1.0.0",
+  "description": "Interactive book sample reader widget for Page Designer and Store pages with zoom and reading mode controls.",
+  "author": "Swiftbase Team",
+  "permissions": [
+    "ui:designer:block"
+  ],
+  "homepage": "https://swiftbase.io/extensions/ebook-preview",
+  "repository": "https://github.com/Swiftbase-Dev/extension-ebook-preview",
+  "widgets": [
+    {
+      "id": "ebook-preview-widget",
+      "label": "E-book Preview Reader",
+      "icon": "book-open",
+      "description": "Places an interactive sample excerpt reader on any page."
+    }
+  ]
+}
