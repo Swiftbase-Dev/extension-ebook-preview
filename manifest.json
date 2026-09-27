@@ -9,12 +9,17 @@
   ],
   "homepage": "https://swiftbase.io/extensions/ebook-preview",
   "repository": "https://github.com/Swiftbase-Dev/extension-ebook-preview",
+  "entry": "dist/widget.js",
+  "files": [
+    "dist/widget.js"
+  ],
   "widgets": [
     {
       "id": "ebook-preview-widget",
       "label": "E-book Preview Reader",
       "icon": "book-open",
-      "description": "Places an interactive sample excerpt reader on any page."
+      "description": "Places an interactive sample excerpt reader on any page.",
+      "script": "dist/widget.js"
     }
   ]
 }
