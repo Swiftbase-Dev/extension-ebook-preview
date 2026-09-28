@@ -2,24 +2,41 @@
   "id": "ebook-preview",
   "name": "E-book Sample Preview Widget",
   "version": "1.0.0",
-  "description": "Interactive book sample reader widget for Page Designer and Store pages with zoom and reading mode controls.",
+  "description": "Interactive book sample reader widget for Page Designer and Store pages with two-page spread view, font zoom, theme controls, and preview management.",
   "author": "Swiftbase Team",
   "permissions": [
     "ui:designer:block"
   ],
   "homepage": "https://swiftbase.io/extensions/ebook-preview",
   "repository": "https://github.com/Swiftbase-Dev/extension-ebook-preview",
-  "entry": "dist/widget.js",
   "files": [
+    "dist/admin.js",
     "dist/widget.js"
+  ],
+  "adminPages": [
+    {
+      "id": "previews",
+      "label": "E-book Previews",
+      "icon": "book-open",
+      "tag": "ext-ebook-previews",
+      "script": "dist/admin.js"
+    }
   ],
   "widgets": [
     {
-      "id": "ebook-preview-widget",
-      "label": "E-book Preview Reader",
+      "id": "preview-reader",
+      "label": "E-book Sample Preview",
       "icon": "book-open",
-      "description": "Places an interactive sample excerpt reader on any page.",
-      "script": "dist/widget.js"
+      "description": "Interactive two-page book sample reader with reading mode and direct store conversion CTA.",
+      "tag": "ext-ebook-preview",
+      "script": "dist/widget.js",
+      "defaultAttributes": {
+        "data-book-title": "Sample Book Title",
+        "data-author": "Author Name",
+        "data-cover-image": "",
+        "data-cta-text": "Buy Full Book",
+        "data-cta-url": "/store"
+      }
     }
   ]
 }

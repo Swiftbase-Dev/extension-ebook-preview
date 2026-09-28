@@ -1,107 +1,162 @@
+/**
+ * Standalone Web Component for E-book Two-Page Spread Reader Widget
+ * <ext-ebook-preview>
+ */
 (function() {
-  class CmsEbookPreviewWidget extends HTMLElement {
+  class ExtEbookPreviewWidget extends HTMLElement {
     constructor() {
       super();
-      this.currentSize = 16;
+      this.currentSpread = 0;
+      this.fontSize = 14;
       this.isDark = false;
+      this.pages = [];
     }
 
     connectedCallback() {
+      this.initData();
       this.render();
     }
 
-    render() {
-      const title = this.getAttribute('data-book-title') || 'Sample Book Preview';
-      const author = this.getAttribute('data-author') || 'Author';
-      const coverImage = this.getAttribute('data-cover-image') || '';
-      const storeLink = this.getAttribute('data-store-link') || '/store';
-      const rawExcerpt = this.getAttribute('data-sample-content') || this.innerHTML.trim() || 'Welcome to this excerpt preview. Enjoy reading the first chapter.';
-      
-      let excerpt = rawExcerpt;
-      try {
-        excerpt = decodeURIComponent(rawExcerpt.replace(/&quot;/g, '"'));
-      } catch (e) {
-        excerpt = rawExcerpt;
+    static get observedAttributes() {
+      return ['data-book-title', 'data-author', 'data-cover-image', 'data-cta-text', 'data-cta-url', 'data-pages'];
+    }
+
+    attributeChangedCallback() {
+      this.initData();
+      this.render();
+    }
+
+    initData() {
+      const rawPages = this.getAttribute('data-pages');
+      if (rawPages) {
+        try {
+          this.pages = JSON.parse(decodeURIComponent(rawPages));
+        } catch {
+          this.pages = rawPages.split('---PAGE---');
+        }
       }
+      if (!this.pages || this.pages.length === 0) {
+        this.pages = [
+          "Chapter 1: The Beginning\n\nThe quiet dawn illuminated the forgotten library halls. Endless shelves held ancient knowledge waiting to be uncovered by those brave enough to seek the truth.",
+          "Chapter 1 (Continued)\n\nSecrets carved into weathered parchment whispered in the morning silence. Every shadow held memories of forgotten empires and untold wonders."
+        ];
+      }
+    }
+
+    render() {
+      const title = this.getAttribute('data-book-title') || 'Sample Book Title';
+      const author = this.getAttribute('data-author') || 'Author Name';
+      const coverImage = this.getAttribute('data-cover-image') || '';
+      const ctaText = this.getAttribute('data-cta-text') || 'Buy Full Book';
+      const ctaUrl = this.getAttribute('data-cta-url') || '/store';
+      const totalPages = this.pages.length;
+
+      const p1 = this.pages[this.currentSpread] || '';
+      const p2 = this.pages[this.currentSpread + 1] || '';
 
       this.innerHTML = `
-        <div class="cms-ebook-preview-container" style="
-          max-width: 48rem;
+        <div style="
+          max-width: 56rem;
           margin: 2rem auto;
-          padding: 2rem;
+          padding: 1.5rem;
           background: ${this.isDark ? '#0f172a' : '#ffffff'};
           color: ${this.isDark ? '#f8fafc' : '#1e293b'};
           border: 1px solid ${this.isDark ? '#1e293b' : '#e2e8f0'};
           border-radius: 1.5rem;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-          font-family: inherit;
+          box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
+          font-family: ui-sans-serif, system-ui, sans-serif;
           transition: all 0.2s ease;
         ">
-          <!-- Header Area -->
-          <div style="display: flex; flex-direction: row; gap: 1.5rem; align-items: flex-start; border-bottom: 1px solid ${this.isDark ? '#1e293b' : '#f1f5f9'}; padding-bottom: 1.5rem;">
-            ${coverImage ? `
-              <div style="width: 5rem; height: 7.5rem; flex-shrink: 0; border-radius: 0.75rem; overflow: hidden; background: #e2e8f0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                <img src="${coverImage}" alt="${title}" style="width: 100%; height: 100%; object-fit: cover;" />
-              </div>
-            ` : `
-              <div style="width: 5rem; height: 7.5rem; flex-shrink: 0; border-radius: 0.75rem; background: #0284c7; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 800; font-size: 0.65rem; text-transform: uppercase;">
-                Sample
-              </div>
-            `}
+          <!-- Header Bar -->
+          <div style="display: flex; flex-direction: row; gap: 1.25rem; align-items: flex-start; padding-bottom: 1.25rem; border-bottom: 1px solid ${this.isDark ? '#1e293b' : '#f1f5f9'};">
+            <div style="width: 4rem; height: 6rem; border-radius: 0.75rem; overflow: hidden; background: #e2e8f0; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+              ${coverImage ? `<img src="${coverImage}" alt="${title}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<span style="font-size: 1.5rem; opacity: 0.4;">📖</span>`}
+            </div>
 
             <div style="flex: 1;">
-              <span style="display: inline-block; background: rgba(2, 132, 199, 0.1); color: #0284c7; font-size: 0.65rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.2rem 0.6rem; border-radius: 0.375rem; margin-bottom: 0.5rem;">
-                Sample Excerpt
+              <span style="display: inline-block; background: rgba(2, 132, 199, 0.1); color: #0284c7; font-size: 0.65rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.2rem 0.6rem; border-radius: 0.375rem; margin-bottom: 0.35rem;">
+                Sample Preview
               </span>
-              <h3 style="margin: 0; font-size: 1.35rem; font-weight: 900; line-height: 1.25; color: ${this.isDark ? '#ffffff' : '#0f172a'};">${title}</h3>
-              <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: ${this.isDark ? '#94a3b8' : '#64748b'};">by ${author}</p>
-              
+              <h3 style="margin: 0; font-size: 1.25rem; font-weight: 900; color: ${this.isDark ? '#ffffff' : '#0f172a'}; line-height: 1.2;">${title}</h3>
+              <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: ${this.isDark ? '#94a3b8' : '#64748b'};">by ${author}</p>
+
               <!-- Controls -->
-              <div style="display: flex; gap: 0.5rem; margin-top: 1rem; align-items: center;">
-                <button type="button" class="btn-zoom-out" style="padding: 0.25rem 0.6rem; border-radius: 0.5rem; border: 1px solid #cbd5e1; background: ${this.isDark ? '#1e293b' : '#f8fafc'}; color: ${this.isDark ? '#fff' : '#334155'}; font-size: 0.75rem; font-weight: 700; cursor: pointer;">A-</button>
-                <button type="button" class="btn-zoom-in" style="padding: 0.25rem 0.6rem; border-radius: 0.5rem; border: 1px solid #cbd5e1; background: ${this.isDark ? '#1e293b' : '#f8fafc'}; color: ${this.isDark ? '#fff' : '#334155'}; font-size: 0.75rem; font-weight: 700; cursor: pointer;">A+</button>
-                <button type="button" class="btn-theme" style="padding: 0.25rem 0.75rem; border-radius: 0.5rem; border: 1px solid #cbd5e1; background: ${this.isDark ? '#1e293b' : '#f8fafc'}; color: ${this.isDark ? '#fff' : '#334155'}; font-size: 0.75rem; font-weight: 700; cursor: pointer;">🌓 Theme</button>
+              <div style="display: flex; gap: 0.4rem; margin-top: 0.75rem; align-items: center;">
+                <button type="button" class="btn-zoom-out" style="padding: 0.2rem 0.5rem; border-radius: 0.5rem; border: 1px solid ${this.isDark ? '#334155' : '#cbd5e1'}; background: ${this.isDark ? '#1e293b' : '#f8fafc'}; color: ${this.isDark ? '#fff' : '#334155'}; font-size: 0.75rem; font-weight: 700; cursor: pointer;">A-</button>
+                <button type="button" class="btn-zoom-in" style="padding: 0.2rem 0.5rem; border-radius: 0.5rem; border: 1px solid ${this.isDark ? '#334155' : '#cbd5e1'}; background: ${this.isDark ? '#1e293b' : '#f8fafc'}; color: ${this.isDark ? '#fff' : '#334155'}; font-size: 0.75rem; font-weight: 700; cursor: pointer;">A+</button>
+                <button type="button" class="btn-theme" style="padding: 0.2rem 0.6rem; border-radius: 0.5rem; border: 1px solid ${this.isDark ? '#334155' : '#cbd5e1'}; background: ${this.isDark ? '#1e293b' : '#f8fafc'}; color: ${this.isDark ? '#fff' : '#334155'}; font-size: 0.75rem; font-weight: 700; cursor: pointer;">🌓 Theme</button>
               </div>
             </div>
 
-            ${storeLink ? `
-              <div style="flex-shrink: 0;">
-                <a href="${storeLink}" style="display: inline-block; background: #0284c7; color: white; padding: 0.6rem 1.2rem; border-radius: 0.75rem; font-weight: 800; font-size: 0.75rem; text-transform: uppercase; text-decoration: none; box-shadow: 0 4px 6px rgba(2, 132, 199, 0.2);">
-                  Buy Full Book &rarr;
-                </a>
-              </div>
-            ` : ''}
+            <div style="flex-shrink: 0;">
+              <a href="${ctaUrl}" style="display: inline-block; background: #0284c7; color: white; padding: 0.5rem 1rem; border-radius: 0.75rem; font-weight: 800; font-size: 0.75rem; text-transform: uppercase; text-decoration: none; box-shadow: 0 4px 6px rgba(2, 132, 199, 0.2);">
+                ${ctaText} &rarr;
+              </a>
+            </div>
           </div>
 
-          <!-- Reading Body Excerpt -->
-          <div class="excerpt-viewport" style="
-            font-family: Georgia, Cambria, 'Times New Roman', Times, serif;
-            font-size: ${this.currentSize}px;
-            line-height: 1.8;
-            padding: 1.5rem 0;
-            color: ${this.isDark ? '#cbd5e1' : '#334155'};
+          <!-- Two-Page Spread Reader Canvas -->
+          <div style="
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            position: relative;
+            background: ${this.isDark ? '#020617' : '#f8fafc'};
+            padding: 1.5rem;
+            border-radius: 1rem;
+            margin: 1.25rem 0;
+            min-height: 200px;
+            border: 1px solid ${this.isDark ? '#1e293b' : '#e2e8f0'};
           ">
-            ${excerpt.replace(/\n\n/g, '</p><p style="margin-bottom: 1rem;">').replace(/\n/g, '<br/>')}
+            <!-- Spine Divider -->
+            <div style="position: absolute; top: 1rem; bottom: 1rem; left: 50%; width: 1px; background: ${this.isDark ? '#1e293b' : '#cbd5e1'};"></div>
+
+            <!-- Left Page -->
+            <div style="display: flex; flex-direction: column; justify-content: space-between;">
+              <div style="font-family: Georgia, serif; font-size: ${this.fontSize}px; line-height: 1.7; color: ${this.isDark ? '#cbd5e1' : '#334155'};">
+                ${this.formatText(p1)}
+              </div>
+              <div style="text-align: center; font-size: 0.65rem; color: #94a3b8; font-family: monospace; padding-top: 1rem;">
+                Page ${this.currentSpread + 1}
+              </div>
+            </div>
+
+            <!-- Right Page -->
+            <div style="display: flex; flex-direction: column; justify-content: space-between;">
+              <div style="font-family: Georgia, serif; font-size: ${this.fontSize}px; line-height: 1.7; color: ${this.isDark ? '#cbd5e1' : '#334155'};">
+                ${this.formatText(p2)}
+              </div>
+              <div style="text-align: center; font-size: 0.65rem; color: #94a3b8; font-family: monospace; padding-top: 1rem;">
+                Page ${Math.min(this.currentSpread + 2, totalPages)}
+              </div>
+            </div>
           </div>
 
-          <!-- Footer -->
-          <div style="border-top: 1px solid ${this.isDark ? '#1e293b' : '#f1f5f9'}; padding-top: 1rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #94a3b8;">
-            <span>End of Preview</span>
-            <span>Powered by Swiftbase Extensions</span>
+          <!-- Footer / Spread Nav -->
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #94a3b8; padding-top: 0.5rem;">
+            <button type="button" class="btn-prev-page" style="padding: 0.3rem 0.8rem; border-radius: 0.5rem; border: 1px solid ${this.isDark ? '#334155' : '#cbd5e1'}; background: transparent; color: ${this.isDark ? '#fff' : '#334155'}; cursor: pointer;" ${this.currentSpread === 0 ? 'disabled' : ''}>
+              &larr; Previous
+            </button>
+            <span style="font-family: monospace; font-weight: 700;">
+              Pages ${this.currentSpread + 1}-${Math.min(this.currentSpread + 2, totalPages)} of ${totalPages}
+            </span>
+            <button type="button" class="btn-next-page" style="padding: 0.3rem 0.8rem; border-radius: 0.5rem; border: none; background: #0284c7; color: white; font-weight: 700; cursor: pointer;" ${this.currentSpread + 2 >= totalPages ? 'disabled' : ''}>
+              Next &rarr;
+            </button>
           </div>
         </div>
       `;
 
       this.querySelector('.btn-zoom-out')?.addEventListener('click', () => {
-        if (this.currentSize > 12) {
-          this.currentSize -= 2;
+        if (this.fontSize > 11) {
+          this.fontSize -= 1;
           this.render();
         }
       });
 
       this.querySelector('.btn-zoom-in')?.addEventListener('click', () => {
-        if (this.currentSize < 28) {
-          this.currentSize += 2;
+        if (this.fontSize < 22) {
+          this.fontSize += 1;
           this.render();
         }
       });
@@ -110,10 +165,29 @@
         this.isDark = !this.isDark;
         this.render();
       });
+
+      this.querySelector('.btn-prev-page')?.addEventListener('click', () => {
+        if (this.currentSpread >= 2) {
+          this.currentSpread -= 2;
+          this.render();
+        }
+      });
+
+      this.querySelector('.btn-next-page')?.addEventListener('click', () => {
+        if (this.currentSpread + 2 < this.pages.length) {
+          this.currentSpread += 2;
+          this.render();
+        }
+      });
+    }
+
+    formatText(str) {
+      if (!str) return '<p style="color: #94a3b8; font-style: italic;">(End of excerpt)</p>';
+      return str.replace(/\n\n/g, '</p><p style="margin-bottom: 0.75rem;">').replace(/\n/g, '<br/>');
     }
   }
 
-  if (typeof customElements !== 'undefined' && !customElements.get('cms-ebook-preview-widget')) {
-    customElements.define('cms-ebook-preview-widget', CmsEbookPreviewWidget);
+  if (typeof customElements !== 'undefined' && !customElements.get('ext-ebook-preview')) {
+    customElements.define('ext-ebook-preview', ExtEbookPreviewWidget);
   }
 })();
