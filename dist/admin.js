@@ -565,33 +565,96 @@
 
     async extractFromEpubArchive(file) {
       const arrayBuffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
+      const uint8 = new Uint8Array(arrayBuffer);
+      const dataView = new DataView(arrayBuffer);
 
-      // Search for HTML/XHTML text stream entries in EPUB ZIP structure
-      const textDecoder = new TextDecoder('utf-8', { fatal: false });
-      const fullText = textDecoder.decode(bytes);
+      // Parse ZIP Local File Headers (0x04034b50)
+      const textDecoder = new TextDecoder('utf-8');
+      const htmlFiles = [];
 
-      // Extract text content from chapter blocks matching <p> tags
-      const pMatches = fullText.match(/<p[\s\S]*?<\/p>/gi);
-      if (pMatches && pMatches.length > 0) {
-        const cleanParagraphs = pMatches
-          .map(p => p.replace(/<[^>]*>/g, '').trim())
-          .filter(t => t.length > 30 && !t.includes('DOCTYPE') && !t.includes('xmlns'));
-        if (cleanParagraphs.length >= 2) {
-          return cleanParagraphs.join('\n\n');
+      let offset = 0;
+      while (offset + 30 <= uint8.length) {
+        const sig = dataView.getUint32(offset, true);
+        if (sig !== 0x04034b50) {
+          // Advance until next local header or central directory
+          offset++;
+          continue;
+        }
+
+        const compressionMethod = dataView.getUint16(offset + 8, true);
+        const compressedSize = dataView.getUint32(offset + 18, true);
+        const uncompressedSize = dataView.getUint32(offset + 22, true);
+        const fileNameLength = dataView.getUint16(offset + 26, true);
+        const extraFieldLength = dataView.getUint16(offset + 28, true);
+
+        const fileStart = offset + 30 + fileNameLength + extraFieldLength;
+        const fileNameBytes = uint8.subarray(offset + 30, offset + 30 + fileNameLength);
+        const fileName = textDecoder.decode(fileNameBytes);
+
+        if (/\.(xhtml|html|htm)$/i.test(fileName) && !/toc|nav/i.test(fileName)) {
+          const compData = uint8.subarray(fileStart, fileStart + compressedSize);
+          htmlFiles.push({
+            name: fileName,
+            compressionMethod,
+            data: compData,
+            uncompressedSize
+          });
+        }
+
+        offset = fileStart + compressedSize;
+      }
+
+      const extractedChapters = [];
+
+      for (const hf of htmlFiles) {
+        try {
+          let decompressedText = "";
+          if (hf.compressionMethod === 0) {
+            // Stored (no compression)
+            decompressedText = textDecoder.decode(hf.data);
+          } else if (hf.compressionMethod === 8) {
+            // Deflate compression - use native DecompressionStream
+            if (typeof DecompressionStream !== "undefined") {
+              const ds = new DecompressionStream('deflate-raw');
+              const writer = ds.writable.getWriter();
+              writer.write(hf.data);
+              writer.close();
+              const response = new Response(ds.readable);
+              decompressedText = await response.text();
+            }
+          }
+
+          if (decompressedText) {
+            // Extract body text or paragraphs
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(decompressedText, "text/html");
+            const paragraphs = Array.from(doc.querySelectorAll("p, h1, h2, h3, h4"))
+              .map(el => el.textContent.trim())
+              .filter(t => t.length > 15);
+
+            if (paragraphs.length > 0) {
+              extractedChapters.push(paragraphs.join("\n\n"));
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed decompressing ${hf.name}:`, err);
         }
       }
 
-      // Fallback: clean raw XML/HTML tags
-      const cleaned = fullText
-        .replace(/<style[\s\S]*?<\/style>/gi, '')
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/[\x00-\x1F\x7F-\x9F]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+      if (extractedChapters.length > 0) {
+        return extractedChapters.join("\n\n---\n\n");
+      }
 
-      return cleaned;
+      // If decompression fails or no paragraphs extracted, do clean regex on decoded strings
+      const fallbackMatches = textDecoder.decode(uint8).match(/<p[\s\S]*?<\/p>/gi);
+      if (fallbackMatches && fallbackMatches.length > 0) {
+        return fallbackMatches
+          .map(p => p.replace(/<[^>]*>/g, '').trim())
+          .filter(t => t.length > 25 && !t.includes('DOCTYPE') && !t.includes('xmlns'))
+          .join('\n\n');
+      }
+
+      throw new Error("Unable to read text from this EPUB file.");
     }
 
     splitContentIntoPages(text, count) {
