@@ -1,7 +1,7 @@
 {
   "id": "ebook-preview",
   "name": "E-book Sample Preview Widget",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Interactive book sample reader widget for Page Designer and Store pages with two-page spread view, font zoom, theme controls, and preview management.",
   "author": "Swiftbase Team",
   "permissions": [
@@ -18,7 +18,7 @@
       "id": "previews",
       "label": "E-book Previews",
       "icon": "book-open",
-      "tag": "ext-ebook-previews",
+      "tag": "ext-ebook-previews-v2",
       "script": "dist/admin.js"
     }
   ],

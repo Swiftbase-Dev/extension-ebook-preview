@@ -723,7 +723,14 @@
     }
   }
 
-  if (typeof customElements !== "undefined" && !customElements.get("ext-ebook-previews")) {
-    customElements.define("ext-ebook-previews", ExtEbookPreviews);
+  if (typeof customElements !== "undefined") {
+    if (!customElements.get("ext-ebook-previews-v2")) {
+      customElements.define("ext-ebook-previews-v2", ExtEbookPreviews);
+    }
+    if (!customElements.get("ext-ebook-previews")) {
+      try {
+        customElements.define("ext-ebook-previews", class extends ExtEbookPreviews {});
+      } catch (e) {}
+    }
   }
 })();
