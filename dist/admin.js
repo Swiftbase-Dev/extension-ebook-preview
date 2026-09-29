@@ -521,21 +521,124 @@
       });
     }
 
+    async loadEpubDependencies() {
+      // Load JSZip then ePub.js from CDN if not already loaded in window
+      if (!window.JSZip) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+          s.onload = () => resolve();
+          s.onerror = (e) => reject(new Error("Failed to load JSZip dependency"));
+          document.head.appendChild(s);
+        });
+      }
+
+      if (!window.ePub) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js";
+          s.onload = () => resolve();
+          s.onerror = (e) => reject(new Error("Failed to load ePub.js engine"));
+          document.head.appendChild(s);
+        });
+      }
+    }
+
     async handleFileExtraction(file) {
       this.extracting = true;
-      this.extractMsg = "";
+      this.extractMsg = "Analyzing book structure...";
       this.render();
 
       try {
-        const text = await this.readBookFileContent(file);
-        const pages = this.splitContentIntoPages(text, this.extractCount);
+        const ext = (file.name.split('.').pop() || '').toLowerCase();
 
-        if (pages.length > 0) {
-          this.syncFormFields();
-          this.form.pages = pages;
-          this.extractMsg = `Extracted ${pages.length} sample pages successfully!`;
+        if (ext === 'epub') {
+          await this.loadEpubDependencies();
+          const arrayBuffer = await file.arrayBuffer();
+          const book = window.ePub(arrayBuffer);
+          await book.opened;
+
+          // 1. Automatically populate metadata from EPUB package
+          try {
+            const meta = await book.loaded.metadata;
+            if (meta) {
+              if (meta.title && !this.form.title) this.form.title = meta.title;
+              if (meta.creator && !this.form.author) this.form.author = meta.creator;
+            }
+            const coverUrl = await book.coverUrl();
+            if (coverUrl && !this.form.coverImage) {
+              this.form.coverImage = coverUrl;
+            }
+          } catch (mErr) {
+            console.debug("Non-critical metadata reading error:", mErr);
+          }
+
+          // 2. Extract chapters using spine
+          const spine = await book.loaded.spine;
+          const spineItems = (spine && spine.spineItems) || [];
+          const extractedChapters = [];
+
+          for (const item of spineItems) {
+            if (extractedChapters.length >= this.extractCount * 2) break;
+            // Skip cover/nav/toc items
+            const href = (item.href || '').toLowerCase();
+            if (/cover|nav|toc|title/i.test(href)) continue;
+
+            try {
+              await item.load(book.load.bind(book));
+              const doc = item.document;
+              if (doc) {
+                const paragraphs = Array.from(doc.querySelectorAll("p, h1, h2, h3, h4"))
+                  .map(el => el.textContent.trim())
+                  .filter(t => t.length > 20 && !/copyright|all rights reserved/i.test(t));
+
+                if (paragraphs.length > 0) {
+                  extractedChapters.push(paragraphs.join("\n\n"));
+                }
+              }
+              item.unload();
+            } catch (itemErr) {
+              console.warn("Spine item load error:", itemErr);
+            }
+          }
+
+          let fullExtractedText = extractedChapters.join("\n\n---\n\n");
+          if (!fullExtractedText || fullExtractedText.trim().length === 0) {
+            // Fallback to JSZip extraction if spine is empty
+            const zip = await window.JSZip.loadAsync(arrayBuffer);
+            const xhtmlFiles = Object.keys(zip.files).filter(k => /\.(xhtml|html|htm)$/i.test(k) && !/toc|nav/i.test(k));
+            const zipTexts = [];
+            for (const xf of xhtmlFiles.slice(0, 10)) {
+              const htmlStr = await zip.files[xf].async("text");
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(htmlStr, "text/html");
+              const ps = Array.from(doc.querySelectorAll("p, h1, h2, h3"))
+                .map(el => el.textContent.trim())
+                .filter(t => t.length > 20);
+              if (ps.length > 0) zipTexts.push(ps.join("\n\n"));
+            }
+            fullExtractedText = zipTexts.join("\n\n---\n\n");
+          }
+
+          const pages = this.splitContentIntoPages(fullExtractedText, this.extractCount);
+          if (pages.length > 0) {
+            this.syncFormFields();
+            this.form.pages = pages;
+            this.extractMsg = `Extracted ${pages.length} sample pages from ${file.name}!`;
+          } else {
+            this.extractMsg = "Could not extract text chapters from this EPUB.";
+          }
+        } else if (ext === 'txt' || ext === 'html' || ext === 'htm') {
+          const raw = await file.text();
+          const clean = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+          const pages = this.splitContentIntoPages(clean, this.extractCount);
+          if (pages.length > 0) {
+            this.syncFormFields();
+            this.form.pages = pages;
+            this.extractMsg = `Extracted ${pages.length} sample pages successfully!`;
+          }
         } else {
-          this.extractMsg = "Could not extract text chapters from this file.";
+          this.extractMsg = "Unsupported file type. Please upload .epub, .txt, or .html";
         }
       } catch (err) {
         console.error("Extraction failed:", err);
@@ -544,117 +647,6 @@
         this.extracting = false;
         this.render();
       }
-    }
-
-    async readBookFileContent(file) {
-      const ext = (file.name.split('.').pop() || '').toLowerCase();
-
-      if (ext === 'txt' || ext === 'html' || ext === 'htm') {
-        const raw = await file.text();
-        return raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
-      }
-
-      // EPUB is a ZIP archive containing XML and XHTML chapters
-      if (ext === 'epub') {
-        return await this.extractFromEpubArchive(file);
-      }
-
-      const raw = await file.text();
-      return raw.replace(/<[^>]*>/g, ' ');
-    }
-
-    async extractFromEpubArchive(file) {
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8 = new Uint8Array(arrayBuffer);
-      const dataView = new DataView(arrayBuffer);
-
-      // Parse ZIP Local File Headers (0x04034b50)
-      const textDecoder = new TextDecoder('utf-8');
-      const htmlFiles = [];
-
-      let offset = 0;
-      while (offset + 30 <= uint8.length) {
-        const sig = dataView.getUint32(offset, true);
-        if (sig !== 0x04034b50) {
-          // Advance until next local header or central directory
-          offset++;
-          continue;
-        }
-
-        const compressionMethod = dataView.getUint16(offset + 8, true);
-        const compressedSize = dataView.getUint32(offset + 18, true);
-        const uncompressedSize = dataView.getUint32(offset + 22, true);
-        const fileNameLength = dataView.getUint16(offset + 26, true);
-        const extraFieldLength = dataView.getUint16(offset + 28, true);
-
-        const fileStart = offset + 30 + fileNameLength + extraFieldLength;
-        const fileNameBytes = uint8.subarray(offset + 30, offset + 30 + fileNameLength);
-        const fileName = textDecoder.decode(fileNameBytes);
-
-        if (/\.(xhtml|html|htm)$/i.test(fileName) && !/toc|nav/i.test(fileName)) {
-          const compData = uint8.subarray(fileStart, fileStart + compressedSize);
-          htmlFiles.push({
-            name: fileName,
-            compressionMethod,
-            data: compData,
-            uncompressedSize
-          });
-        }
-
-        offset = fileStart + compressedSize;
-      }
-
-      const extractedChapters = [];
-
-      for (const hf of htmlFiles) {
-        try {
-          let decompressedText = "";
-          if (hf.compressionMethod === 0) {
-            // Stored (no compression)
-            decompressedText = textDecoder.decode(hf.data);
-          } else if (hf.compressionMethod === 8) {
-            // Deflate compression - use native DecompressionStream
-            if (typeof DecompressionStream !== "undefined") {
-              const ds = new DecompressionStream('deflate-raw');
-              const writer = ds.writable.getWriter();
-              writer.write(hf.data);
-              writer.close();
-              const response = new Response(ds.readable);
-              decompressedText = await response.text();
-            }
-          }
-
-          if (decompressedText) {
-            // Extract body text or paragraphs
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(decompressedText, "text/html");
-            const paragraphs = Array.from(doc.querySelectorAll("p, h1, h2, h3, h4"))
-              .map(el => el.textContent.trim())
-              .filter(t => t.length > 15);
-
-            if (paragraphs.length > 0) {
-              extractedChapters.push(paragraphs.join("\n\n"));
-            }
-          }
-        } catch (err) {
-          console.warn(`Failed decompressing ${hf.name}:`, err);
-        }
-      }
-
-      if (extractedChapters.length > 0) {
-        return extractedChapters.join("\n\n---\n\n");
-      }
-
-      // If decompression fails or no paragraphs extracted, do clean regex on decoded strings
-      const fallbackMatches = textDecoder.decode(uint8).match(/<p[\s\S]*?<\/p>/gi);
-      if (fallbackMatches && fallbackMatches.length > 0) {
-        return fallbackMatches
-          .map(p => p.replace(/<[^>]*>/g, '').trim())
-          .filter(t => t.length > 25 && !t.includes('DOCTYPE') && !t.includes('xmlns'))
-          .join('\n\n');
-      }
-
-      throw new Error("Unable to read text from this EPUB file.");
     }
 
     splitContentIntoPages(text, count) {
