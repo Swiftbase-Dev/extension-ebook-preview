@@ -31,6 +31,7 @@
       "tag": "ext-ebook-preview",
       "script": "dist/widget.js",
       "defaultAttributes": {
+        "data-preview-id": "",
         "data-book-title": "Sample Book Title",
         "data-author": "Author Name",
         "data-cover-image": "",

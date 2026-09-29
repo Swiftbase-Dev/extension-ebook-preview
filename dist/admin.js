@@ -53,7 +53,8 @@
         ]);
         if (prevRes.ok) {
           const recs = await prevRes.json();
-          this.previews = recs.map(r => r.data || r);
+          const items = Array.isArray(recs) ? recs : (recs ? [recs] : []);
+          this.previews = items.map(r => r.data || r).filter(Boolean);
         }
         if (prodRes.ok) {
           this.products = await prodRes.json();
@@ -200,6 +201,37 @@
                 </div>
               </div>
 
+              <!-- Automated Book Extraction Box -->
+              <div class="bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-2xl p-4 space-y-3">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="text-base">⚡</span>
+                    <div>
+                      <h4 class="text-xs font-bold text-slate-900 dark:text-white">Auto-Extract Sample from Book File</h4>
+                      <p class="text-[10px] text-slate-500 dark:text-slate-400">Upload an EPUB, HTML, or TXT file to automatically extract preview pages without manual entry.</p>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <label class="text-[10px] font-bold text-slate-400">Chapters/Sections:</label>
+                    <select id="select-extract-count" class="select select-bordered select-xs rounded-lg dark:bg-slate-800">
+                      <option value="1" ${this.extractCount === 1 ? 'selected' : ''}>1</option>
+                      <option value="2" ${this.extractCount === 2 ? 'selected' : ''}>2</option>
+                      <option value="3" ${this.extractCount === 3 ? 'selected' : ''}>3</option>
+                      <option value="5" ${this.extractCount === 5 ? 'selected' : ''}>5</option>
+                      <option value="10" ${this.extractCount === 10 ? 'selected' : ''}>10</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-3">
+                  <label class="btn btn-xs btn-primary text-white rounded-xl font-bold uppercase tracking-wider cursor-pointer">
+                    ${this.extracting ? 'Extracting...' : 'Upload & Extract File'}
+                    <input type="file" id="file-extract-input" class="hidden" accept=".epub,.txt,.html,.htm" />
+                  </label>
+                  ${this.extractMsg ? `<span class="text-xs font-medium text-emerald-600 dark:text-emerald-400">${this.extractMsg}</span>` : ''}
+                </div>
+              </div>
+
               <!-- Pages list -->
               <div>
                 <div class="flex justify-between items-center mb-1.5">
@@ -237,6 +269,75 @@
                 </button>
               </div>
             </form>
+          </div>
+        </dialog>
+
+        <!-- Stats / Analytics Modal -->
+        <dialog id="modal-analytics" class="modal modal-bottom sm:modal-middle ${this.showAnalyticsModal ? 'modal-open' : ''}">
+          <div class="modal-box bg-white dark:bg-slate-900 border border-base-200 dark:border-slate-800 max-w-2xl w-full rounded-3xl p-6 space-y-6">
+            <div class="flex items-center justify-between border-b border-base-200 dark:border-slate-800 pb-3">
+              <div class="flex items-center gap-2">
+                <span class="text-xl">📊</span>
+                <div>
+                  <h3 class="font-black text-xl text-slate-900 dark:text-white">Reader Engagement Stats</h3>
+                  <p class="text-xs text-slate-400 font-medium">${this.activePreview?.title || ''}</p>
+                </div>
+              </div>
+              <button id="btn-close-analytics" class="btn btn-sm btn-ghost btn-circle">✕</button>
+            </div>
+
+            <!-- Stats Overview Cards -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div class="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-base-200 dark:border-slate-700 text-center">
+                <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Views</span>
+                <span class="text-2xl font-black text-slate-900 dark:text-white font-mono mt-1 block">
+                  ${this.activePreview?.viewsCount || 0}
+                </span>
+              </div>
+              <div class="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-base-200 dark:border-slate-700 text-center">
+                <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Page Flips</span>
+                <span class="text-2xl font-black text-slate-900 dark:text-white font-mono mt-1 block">
+                  ${this.activePreview?.readsCount || 0}
+                </span>
+              </div>
+              <div class="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-base-200 dark:border-slate-700 text-center">
+                <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-400">CTA Clicks</span>
+                <span class="text-2xl font-black text-primary font-mono mt-1 block">
+                  ${this.activePreview?.clicksCount || 0}
+                </span>
+              </div>
+              <div class="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-base-200 dark:border-slate-700 text-center">
+                <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Conversion</span>
+                <span class="text-2xl font-black text-emerald-500 font-mono mt-1 block">
+                  ${this.calculateCtr(this.activePreview)}%
+                </span>
+              </div>
+            </div>
+
+            <!-- Detailed Breakdown -->
+            <div class="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-base-200 dark:border-slate-700 space-y-3">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Preview Performance</h4>
+              <div class="space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                <div class="flex justify-between items-center py-1 border-b border-slate-200 dark:border-slate-700">
+                  <span>Available Excerpt Pages</span>
+                  <span class="font-mono font-bold">${(this.activePreview?.pages || []).length} pages</span>
+                </div>
+                <div class="flex justify-between items-center py-1 border-b border-slate-200 dark:border-slate-700">
+                  <span>Average Flips per Visitor</span>
+                  <span class="font-mono font-bold">
+                    ${this.activePreview?.viewsCount ? (this.activePreview.readsCount / this.activePreview.viewsCount).toFixed(1) : '0.0'}
+                  </span>
+                </div>
+                <div class="flex justify-between items-center py-1">
+                  <span>Purchase Redirect URL</span>
+                  <span class="font-mono text-primary truncate max-w-[240px]">${this.activePreview?.ctaUrl || '/store'}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-action">
+              <button type="button" id="btn-analytics-ok" class="btn btn-sm btn-primary text-white rounded-xl font-bold px-6 text-xs uppercase">Close</button>
+            </div>
           </div>
         </dialog>
 
@@ -296,6 +397,19 @@
       this.querySelector("#btn-cancel-form")?.addEventListener("click", () => { this.showModal = false; this.render(); });
       this.querySelector("#btn-close-viewer")?.addEventListener("click", () => { this.showViewerModal = false; this.render(); });
 
+      this.querySelector("#btn-close-analytics")?.addEventListener("click", () => { this.showAnalyticsModal = false; this.render(); });
+      this.querySelector("#btn-analytics-ok")?.addEventListener("click", () => { this.showAnalyticsModal = false; this.render(); });
+
+      this.querySelector("#select-extract-count")?.addEventListener("change", (e) => {
+        this.extractCount = parseInt(e.target.value, 10) || 2;
+      });
+
+      this.querySelector("#file-extract-input")?.addEventListener("change", async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        await this.handleFileExtraction(file);
+      });
+
       this.querySelector("#btn-add-page")?.addEventListener("click", () => {
         this.syncFormFields();
         this.form.pages.push("New excerpt page content...");
@@ -345,6 +459,18 @@
         }
       });
 
+      this.querySelectorAll(".btn-stats").forEach(b => {
+        b.addEventListener("click", (e) => {
+          const id = e.currentTarget.dataset.id;
+          const p = this.previews.find(x => x.id === id);
+          if (p) {
+            this.activePreview = p;
+            this.showAnalyticsModal = true;
+            this.render();
+          }
+        });
+      });
+
       this.querySelectorAll(".btn-test").forEach(b => {
         b.addEventListener("click", (e) => {
           const id = e.currentTarget.dataset.id;
@@ -364,6 +490,7 @@
           const p = this.previews.find(x => x.id === id);
           if (p) {
             this.form = JSON.parse(JSON.stringify(p));
+            this.extractMsg = "";
             this.showModal = true;
             this.render();
           }
@@ -394,6 +521,110 @@
       });
     }
 
+    async handleFileExtraction(file) {
+      this.extracting = true;
+      this.extractMsg = "";
+      this.render();
+
+      try {
+        const text = await this.readBookFileContent(file);
+        const pages = this.splitContentIntoPages(text, this.extractCount);
+
+        if (pages.length > 0) {
+          this.syncFormFields();
+          this.form.pages = pages;
+          this.extractMsg = `Extracted ${pages.length} sample pages successfully!`;
+        } else {
+          this.extractMsg = "Could not extract text chapters from this file.";
+        }
+      } catch (err) {
+        console.error("Extraction failed:", err);
+        this.extractMsg = "Extraction error: " + (err.message || "Failed to parse file");
+      } finally {
+        this.extracting = false;
+        this.render();
+      }
+    }
+
+    async readBookFileContent(file) {
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+
+      if (ext === 'txt' || ext === 'html' || ext === 'htm') {
+        const raw = await file.text();
+        return raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+      }
+
+      // EPUB is a ZIP archive containing XML and XHTML chapters
+      if (ext === 'epub') {
+        return await this.extractFromEpubArchive(file);
+      }
+
+      const raw = await file.text();
+      return raw.replace(/<[^>]*>/g, ' ');
+    }
+
+    async extractFromEpubArchive(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+
+      // Search for HTML/XHTML text stream entries in EPUB ZIP structure
+      const textDecoder = new TextDecoder('utf-8', { fatal: false });
+      const fullText = textDecoder.decode(bytes);
+
+      // Extract text content from chapter blocks matching <p> tags
+      const pMatches = fullText.match(/<p[\s\S]*?<\/p>/gi);
+      if (pMatches && pMatches.length > 0) {
+        const cleanParagraphs = pMatches
+          .map(p => p.replace(/<[^>]*>/g, '').trim())
+          .filter(t => t.length > 30 && !t.includes('DOCTYPE') && !t.includes('xmlns'));
+        if (cleanParagraphs.length >= 2) {
+          return cleanParagraphs.join('\n\n');
+        }
+      }
+
+      // Fallback: clean raw XML/HTML tags
+      const cleaned = fullText
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/[\x00-\x1F\x7F-\x9F]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      return cleaned;
+    }
+
+    splitContentIntoPages(text, count) {
+      if (!text) return [];
+      const paragraphs = text.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
+
+      if (paragraphs.length >= count) {
+        const perPage = Math.max(1, Math.floor(paragraphs.length / count));
+        const pages = [];
+        for (let i = 0; i < count; i++) {
+          const chunk = paragraphs.slice(i * perPage, (i + 1) * perPage).join('\n\n');
+          if (chunk) pages.push(`Chapter ${i + 1}\n\n${chunk.substring(0, 1500)}`);
+        }
+        return pages;
+      }
+
+      // Chunk by sentence/length if paragraphs are sparse
+      const pageSize = 800;
+      const pages = [];
+      for (let i = 0; i < count; i++) {
+        const start = i * pageSize;
+        if (start < text.length) {
+          pages.push(`Chapter ${i + 1}\n\n${text.substring(start, start + pageSize).trim()}`);
+        }
+      }
+      return pages;
+    }
+
+    calculateCtr(preview) {
+      if (!preview || !preview.viewsCount || !preview.clicksCount) return "0.0";
+      return ((preview.clicksCount / preview.viewsCount) * 100).toFixed(1);
+    }
+
     syncFormFields() {
       const title = this.querySelector("#input-title");
       if (title) this.form.title = title.value;
@@ -419,10 +650,14 @@
         title: "",
         author: "",
         coverImage: "",
-        pages: ["Chapter 1\n\nThe quiet dawn illuminated the forgotten library halls. Endless shelves held ancient knowledge waiting to be uncovered...", "Chapter 1 (Continued)\n\nSecrets carved into parchment whispered in the silence. The journey of thousands of miles begins with a single turn of the page..."],
+        pages: [
+          "Chapter 1\n\nThe quiet dawn illuminated the forgotten library halls. Endless shelves held ancient knowledge waiting to be uncovered...",
+          "Chapter 1 (Continued)\n\nSecrets carved into parchment whispered in the silence. The journey of thousands of miles begins with a single turn of the page..."
+        ],
         ctaText: "Buy Full Book",
         ctaUrl: "/store"
       };
+      this.extractMsg = "";
       this.showModal = true;
       this.render();
     }

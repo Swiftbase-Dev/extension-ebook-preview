@@ -10,20 +10,87 @@
       this.fontSize = 14;
       this.isDark = false;
       this.pages = [];
+      this.viewTracked = false;
+    }
+
+    get apiBase() {
+      return this._apiBase || "/api/extensions/ebook-preview";
+    }
+
+    set apiBase(val) {
+      this._apiBase = val;
     }
 
     connectedCallback() {
       this.initData();
       this.render();
+      this.trackEvent("view");
     }
 
     static get observedAttributes() {
-      return ['data-book-title', 'data-author', 'data-cover-image', 'data-cta-text', 'data-cta-url', 'data-pages'];
+      return ['data-preview-id', 'data-book-title', 'data-author', 'data-cover-image', 'data-cta-text', 'data-cta-url', 'data-pages'];
     }
 
-    attributeChangedCallback() {
-      this.initData();
-      this.render();
+    attributeChangedCallback(name) {
+      if (name === 'data-preview-id') {
+        this.loadPreviewById();
+      } else {
+        this.initData();
+        this.render();
+      }
+    }
+
+    async loadPreviewById() {
+      const prevId = this.getAttribute('data-preview-id');
+      if (!prevId) return;
+      try {
+        const res = await fetch(`${this.apiBase}/data/previews?key=${encodeURIComponent(prevId)}`);
+        if (res.ok) {
+          const rec = await res.json();
+          const data = (rec && rec.data) ? rec.data : (Array.isArray(rec) && rec[0] ? (rec[0].data || rec[0]) : rec);
+          if (data) {
+            if (data.title) this.setAttribute('data-book-title', data.title);
+            if (data.author) this.setAttribute('data-author', data.author);
+            if (data.coverImage) this.setAttribute('data-cover-image', data.coverImage);
+            if (data.ctaText) this.setAttribute('data-cta-text', data.ctaText);
+            if (data.ctaUrl) this.setAttribute('data-cta-url', data.ctaUrl);
+            if (Array.isArray(data.pages)) {
+              this.pages = data.pages;
+              this.render();
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to load preview by ID:", err);
+      }
+    }
+
+    async trackEvent(type) {
+      const prevId = this.getAttribute('data-preview-id');
+      if (!prevId) return;
+      if (type === 'view') {
+        if (this.viewTracked) return;
+        this.viewTracked = true;
+      }
+      try {
+        const res = await fetch(`${this.apiBase}/data/previews?key=${encodeURIComponent(prevId)}`);
+        if (!res.ok) return;
+        const rec = await res.json();
+        const data = (rec && rec.data) ? rec.data : (Array.isArray(rec) && rec[0] ? (rec[0].data || rec[0]) : rec);
+        if (!data) return;
+
+        if (type === 'view') data.viewsCount = (data.viewsCount || 0) + 1;
+        if (type === 'flip') data.readsCount = (data.readsCount || 0) + 1;
+        if (type === 'click') data.clicksCount = (data.clicksCount || 0) + 1;
+
+        await fetch(`${this.apiBase}/data/previews`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: prevId, data })
+        });
+      } catch (err) {
+        // Non-blocking telemetry
+      }
     }
 
     initData() {
@@ -89,7 +156,7 @@
             </div>
 
             <div style="flex-shrink: 0;">
-              <a href="${ctaUrl}" style="display: inline-block; background: #0284c7; color: white; padding: 0.5rem 1rem; border-radius: 0.75rem; font-weight: 800; font-size: 0.75rem; text-transform: uppercase; text-decoration: none; box-shadow: 0 4px 6px rgba(2, 132, 199, 0.2);">
+              <a href="${ctaUrl}" class="btn-preview-cta" style="display: inline-block; background: #0284c7; color: white; padding: 0.5rem 1rem; border-radius: 0.75rem; font-weight: 800; font-size: 0.75rem; text-transform: uppercase; text-decoration: none; box-shadow: 0 4px 6px rgba(2, 132, 199, 0.2);">
                 ${ctaText} &rarr;
               </a>
             </div>
@@ -147,6 +214,10 @@
         </div>
       `;
 
+      this.querySelector('.btn-preview-cta')?.addEventListener('click', () => {
+        this.trackEvent('click');
+      });
+
       this.querySelector('.btn-zoom-out')?.addEventListener('click', () => {
         if (this.fontSize > 11) {
           this.fontSize -= 1;
@@ -175,6 +246,7 @@
 
       this.querySelector('.btn-next-page')?.addEventListener('click', () => {
         if (this.currentSpread + 2 < this.pages.length) {
+          this.trackEvent('flip');
           this.currentSpread += 2;
           this.render();
         }
