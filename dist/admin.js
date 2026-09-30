@@ -18,7 +18,7 @@
       this.activePreview = null;
       this.analyticsData = null;
       this.viewerSpread = 0;
-      this.extractCount = 2;
+      this.extractCount = 4;
       this.form = {
         id: "",
         productId: "",
@@ -212,13 +212,16 @@
                     </div>
                   </div>
                   <div class="flex items-center gap-2">
-                    <label class="text-[10px] font-bold text-slate-400">Chapters/Sections:</label>
+                    <label class="text-[10px] font-bold text-slate-400">Sample Pages:</label>
                     <select id="select-extract-count" class="select select-bordered select-xs rounded-lg dark:bg-slate-800">
-                      <option value="1" ${this.extractCount === 1 ? 'selected' : ''}>1</option>
-                      <option value="2" ${this.extractCount === 2 ? 'selected' : ''}>2</option>
-                      <option value="3" ${this.extractCount === 3 ? 'selected' : ''}>3</option>
-                      <option value="5" ${this.extractCount === 5 ? 'selected' : ''}>5</option>
-                      <option value="10" ${this.extractCount === 10 ? 'selected' : ''}>10</option>
+                      <option value="2" ${this.extractCount === 2 ? 'selected' : ''}>2 pages</option>
+                      <option value="4" ${this.extractCount === 4 ? 'selected' : ''}>4 pages</option>
+                      <option value="6" ${this.extractCount === 6 ? 'selected' : ''}>6 pages</option>
+                      <option value="8" ${this.extractCount === 8 ? 'selected' : ''}>8 pages</option>
+                      <option value="10" ${this.extractCount === 10 ? 'selected' : ''}>10 pages</option>
+                      <option value="12" ${this.extractCount === 12 ? 'selected' : ''}>12 pages</option>
+                      <option value="16" ${this.extractCount === 16 ? 'selected' : ''}>16 pages</option>
+                      <option value="20" ${this.extractCount === 20 ? 'selected' : ''}>20 pages</option>
                     </select>
                   </div>
                 </div>
@@ -551,10 +554,12 @@
 
       try {
         const ext = (file.name.split('.').pop() || '').toLowerCase();
+        const targetPages = parseInt(this.extractCount, 10) || 4;
 
         if (ext === 'epub') {
           await this.loadEpubDependencies();
           const arrayBuffer = await file.arrayBuffer();
+          const zip = await window.JSZip.loadAsync(arrayBuffer);
           const book = window.ePub(arrayBuffer);
           await book.opened;
 
@@ -573,27 +578,79 @@
             console.debug("Non-critical metadata reading error:", mErr);
           }
 
-          // 2. Extract chapters using spine
+          // Build zip image resolver map for resolving relative <img> tags to base64 data URIs
+          const imageMap = {};
+          const imageFiles = Object.keys(zip.files).filter(p => /\.(png|jpe?g|gif|svg|webp)$/i.test(p));
+          for (const imgPath of imageFiles) {
+            const baseName = imgPath.split('/').pop().toLowerCase();
+            imageMap[imgPath] = imgPath;
+            imageMap[baseName] = imgPath;
+          }
+
+          const resolveImageDataUri = async (rawSrc, currentDocPath) => {
+            if (!rawSrc || rawSrc.startsWith('data:') || rawSrc.startsWith('http')) return rawSrc;
+            try {
+              // Normalize relative path
+              let clean = rawSrc.replace(/^(\.\.\/)+/, '').replace(/^\.\//, '');
+              let zipPath = imageMap[clean] || imageMap[clean.toLowerCase()] || imageMap[clean.split('/').pop().toLowerCase()];
+              if (!zipPath && currentDocPath) {
+                const docDir = currentDocPath.split('/').slice(0, -1).join('/');
+                const candidate = docDir ? `${docDir}/${clean}` : clean;
+                zipPath = imageMap[candidate] || imageMap[candidate.toLowerCase()];
+              }
+              if (zipPath && zip.files[zipPath]) {
+                const mime = zipPath.endsWith('.png') ? 'image/png'
+                  : zipPath.endsWith('.gif') ? 'image/gif'
+                  : zipPath.endsWith('.svg') ? 'image/svg+xml'
+                  : zipPath.endsWith('.webp') ? 'image/webp'
+                  : 'image/jpeg';
+                const base64 = await zip.files[zipPath].async("base64");
+                return `data:${mime};base64,${base64}`;
+              }
+            } catch (err) {
+              console.warn("Failed to resolve EPUB image data URI:", err);
+            }
+            return rawSrc;
+          };
+
+          // 2. Extract structured content from spine items
           const spine = await book.loaded.spine;
           const spineItems = (spine && spine.spineItems) || [];
-          const extractedChapters = [];
+          const collectedBlocks = [];
 
           for (const item of spineItems) {
-            if (extractedChapters.length >= this.extractCount * 2) break;
-            // Skip cover/nav/toc items
+            if (collectedBlocks.length >= targetPages * 12) break;
             const href = (item.href || '').toLowerCase();
-            if (/cover|nav|toc|title/i.test(href)) continue;
+            if (/cover|nav|toc/i.test(href)) continue;
 
             try {
               await item.load(book.load.bind(book));
               const doc = item.document;
               if (doc) {
-                const paragraphs = Array.from(doc.querySelectorAll("p, h1, h2, h3, h4"))
-                  .map(el => el.textContent.trim())
-                  .filter(t => t.length > 20 && !/copyright|all rights reserved/i.test(t));
+                // Find and convert image sources to data URIs
+                const imgs = Array.from(doc.querySelectorAll('img, image'));
+                for (const img of imgs) {
+                  const srcAttr = img.getAttribute('src') || img.getAttribute('xlink:href') || '';
+                  if (srcAttr) {
+                    const dataUri = await resolveImageDataUri(srcAttr, item.href);
+                    if (dataUri) img.setAttribute('src', dataUri);
+                  }
+                }
 
-                if (paragraphs.length > 0) {
-                  extractedChapters.push(paragraphs.join("\n\n"));
+                // Extract all relevant content elements in DOM order
+                const elements = Array.from(doc.body.querySelectorAll('h1, h2, h3, h4, h5, h6, p, hr, blockquote, figure, img, .section-break, .break, .page-number, .header, .footer'));
+                for (const el of elements) {
+                  // Skip nested elements if their parent was already captured
+                  if (el.parentElement && ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'FIGURE'].includes(el.parentElement.tagName)) {
+                    continue;
+                  }
+                  const text = el.textContent.trim();
+                  const tag = el.tagName.toLowerCase();
+                  if (tag === 'hr' || tag === 'img') {
+                    collectedBlocks.push(el.outerHTML);
+                  } else if (text.length > 0 && !/copyright|all rights reserved/i.test(text)) {
+                    collectedBlocks.push(el.outerHTML);
+                  }
                 }
               }
               item.unload();
@@ -602,36 +659,54 @@
             }
           }
 
-          let fullExtractedText = extractedChapters.join("\n\n---\n\n");
-          if (!fullExtractedText || fullExtractedText.trim().length === 0) {
-            // Fallback to JSZip extraction if spine is empty
-            const zip = await window.JSZip.loadAsync(arrayBuffer);
+          // Fallback if spine was empty
+          if (collectedBlocks.length === 0) {
             const xhtmlFiles = Object.keys(zip.files).filter(k => /\.(xhtml|html|htm)$/i.test(k) && !/toc|nav/i.test(k));
-            const zipTexts = [];
             for (const xf of xhtmlFiles.slice(0, 10)) {
+              if (collectedBlocks.length >= targetPages * 12) break;
               const htmlStr = await zip.files[xf].async("text");
               const parser = new DOMParser();
               const doc = parser.parseFromString(htmlStr, "text/html");
-              const ps = Array.from(doc.querySelectorAll("p, h1, h2, h3"))
-                .map(el => el.textContent.trim())
-                .filter(t => t.length > 20);
-              if (ps.length > 0) zipTexts.push(ps.join("\n\n"));
+              const imgs = Array.from(doc.querySelectorAll('img'));
+              for (const img of imgs) {
+                const srcAttr = img.getAttribute('src') || '';
+                if (srcAttr) {
+                  const dataUri = await resolveImageDataUri(srcAttr, xf);
+                  if (dataUri) img.setAttribute('src', dataUri);
+                }
+              }
+              const elements = Array.from(doc.body ? doc.body.querySelectorAll('h1, h2, h3, h4, p, hr, blockquote, img') : []);
+              for (const el of elements) {
+                if (el.parentElement && ['P', 'H1', 'H2', 'H3', 'H4', 'BLOCKQUOTE'].includes(el.parentElement.tagName)) continue;
+                const text = el.textContent.trim();
+                const tag = el.tagName.toLowerCase();
+                if (tag === 'hr' || tag === 'img' || (text.length > 0 && !/copyright|all rights reserved/i.test(text))) {
+                  collectedBlocks.push(el.outerHTML);
+                }
+              }
             }
-            fullExtractedText = zipTexts.join("\n\n---\n\n");
           }
 
-          const pages = this.splitContentIntoPages(fullExtractedText, this.extractCount);
+          const pages = this.paginateBlocks(collectedBlocks, targetPages);
           if (pages.length > 0) {
             this.syncFormFields();
             this.form.pages = pages;
             this.extractMsg = `Extracted ${pages.length} sample pages from ${file.name}!`;
           } else {
-            this.extractMsg = "Could not extract text chapters from this EPUB.";
+            this.extractMsg = "Could not extract readable pages from this EPUB.";
           }
         } else if (ext === 'txt' || ext === 'html' || ext === 'htm') {
           const raw = await file.text();
-          const clean = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
-          const pages = this.splitContentIntoPages(clean, this.extractCount);
+          let blocks = [];
+          if (ext === 'txt') {
+            blocks = raw.split(/\n\n+/).map(p => p.trim()).filter(Boolean).map(p => `<p>${this.escapeHtml(p)}</p>`);
+          } else {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(raw, "text/html");
+            const elements = Array.from(doc.body ? doc.body.querySelectorAll('h1, h2, h3, h4, p, hr, blockquote, img') : []);
+            blocks = elements.map(el => el.outerHTML);
+          }
+          const pages = this.paginateBlocks(blocks, targetPages);
           if (pages.length > 0) {
             this.syncFormFields();
             this.form.pages = pages;
@@ -649,30 +724,65 @@
       }
     }
 
-    splitContentIntoPages(text, count) {
-      if (!text) return [];
-      const paragraphs = text.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
-
-      if (paragraphs.length >= count) {
-        const perPage = Math.max(1, Math.floor(paragraphs.length / count));
-        const pages = [];
-        for (let i = 0; i < count; i++) {
-          const chunk = paragraphs.slice(i * perPage, (i + 1) * perPage).join('\n\n');
-          if (chunk) pages.push(`Chapter ${i + 1}\n\n${chunk.substring(0, 1500)}`);
-        }
-        return pages;
-      }
-
-      // Chunk by sentence/length if paragraphs are sparse
-      const pageSize = 800;
+    paginateBlocks(blocks, targetPageCount) {
+      if (!blocks || blocks.length === 0) return [];
       const pages = [];
-      for (let i = 0; i < count; i++) {
-        const start = i * pageSize;
-        if (start < text.length) {
-          pages.push(`Chapter ${i + 1}\n\n${text.substring(start, start + pageSize).trim()}`);
+      let currentPageHtml = [];
+      let currentWordCount = 0;
+      const targetWordsPerPage = 270; // Natural book page density
+
+      for (let i = 0; i < blocks.length; i++) {
+        if (pages.length >= targetPageCount) break;
+
+        const block = blocks[i];
+        // Estimate word count from text inside HTML
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = block;
+        const text = tempDiv.textContent || "";
+        const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+        const isHeader = /^<h[1-4]/i.test(block);
+        const isSectionBreak = /^<hr/i.test(block) || /section-break|separator/i.test(block);
+
+        // If block is a major header (e.g. Chapter header) and current page already has substantial text, start fresh page
+        if (isHeader && currentWordCount > 100 && currentPageHtml.length > 0) {
+          pages.push(currentPageHtml.join("\n\n"));
+          currentPageHtml = [block];
+          currentWordCount = words;
+          if (pages.length >= targetPageCount) break;
+          continue;
         }
+
+        // If adding this block exceeds page target words, push page if we have content
+        if (currentWordCount + words > targetWordsPerPage && currentPageHtml.length > 0) {
+          // If current block is section break, keep it on previous or new page cleanly
+          if (isSectionBreak) {
+            currentPageHtml.push(block);
+            pages.push(currentPageHtml.join("\n\n"));
+            currentPageHtml = [];
+            currentWordCount = 0;
+          } else {
+            pages.push(currentPageHtml.join("\n\n"));
+            currentPageHtml = [block];
+            currentWordCount = words;
+          }
+          if (pages.length >= targetPageCount) break;
+          continue;
+        }
+
+        currentPageHtml.push(block);
+        currentWordCount += words;
       }
-      return pages;
+
+      if (currentPageHtml.length > 0 && pages.length < targetPageCount) {
+        pages.push(currentPageHtml.join("\n\n"));
+      }
+
+      // If we don't have enough pages, split oversized pages or return what we have
+      return pages.slice(0, targetPageCount);
+    }
+
+    escapeHtml(str) {
+      return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
     calculateCtr(preview) {
@@ -717,9 +827,18 @@
       this.render();
     }
 
-    formatContent(text) {
-      if (!text) return '<p class="text-slate-400 italic">No content on this page.</p>';
-      return text.replace(/\n\n/g, '</p><p class="mb-3">').replace(/\n/g, '<br/>');
+    formatContent(content) {
+      if (!content) return '<p class="text-slate-400 italic">No content on this page.</p>';
+      const isHtml = /<[a-z][\s\S]*>/i.test(content);
+      if (isHtml) {
+        // Remove potentially unsafe script or iframe tags
+        let safe = content.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                          .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+                          .replace(/\son\w+="[^"]*"/gi, '')
+                          .replace(/\son\w+='[^']*'/gi, '');
+        return safe;
+      }
+      return content.replace(/\n\n/g, '</p><p class="mb-3">').replace(/\n/g, '<br/>');
     }
   }
 

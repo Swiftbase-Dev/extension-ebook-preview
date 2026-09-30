@@ -255,7 +255,32 @@
 
     formatText(str) {
       if (!str) return '<p style="color: #94a3b8; font-style: italic;">(End of excerpt)</p>';
-      return str.replace(/\n\n/g, '</p><p style="margin-bottom: 0.75rem;">').replace(/\n/g, '<br/>');
+      const isHtml = /<[a-z][\s\S]*>/i.test(str);
+      if (isHtml) {
+        let safe = str.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+                      .replace(/\son\w+="[^"]*"/gi, '')
+                      .replace(/\son\w+='[^']*'/gi, '');
+
+        // Enhance styling of common book elements
+        safe = safe.replace(/<h([1-6])([^>]*)>/gi, (match, level, rest) => {
+          const size = level === '1' ? '1.35rem' : level === '2' ? '1.2rem' : '1.05rem';
+          return `<h${level} style="font-family: inherit; font-size: ${size}; font-weight: 800; text-align: center; margin: 0.5rem 0 1rem 0; line-height: 1.3;"${rest}>`;
+        });
+
+        safe = safe.replace(/<hr([^>]*)>/gi, '<hr style="border: none; border-top: 1px solid rgba(148, 163, 184, 0.4); margin: 1.25rem auto; width: 60%; text-align: center;"$1/>');
+
+        safe = safe.replace(/<img([^>]*?)(\/?>)/gi, (m, attrs) => {
+          return `<img style="max-width: 100%; height: auto; border-radius: 0.5rem; display: block; margin: 0.75rem auto;" ${attrs} />`;
+        });
+
+        safe = safe.replace(/<blockquote([^>]*)>/gi, '<blockquote style="border-left: 3px solid #0284c7; padding-left: 0.75rem; margin: 0.75rem 0; font-style: italic;"$1>');
+
+        safe = safe.replace(/<p([^>]*)>/gi, '<p style="margin-bottom: 0.75rem; text-indent: 1em; line-height: 1.7;"$1>');
+
+        return safe;
+      }
+      return str.replace(/\n\n/g, '</p><p style="margin-bottom: 0.75rem; text-indent: 1em; line-height: 1.7;">').replace(/\n/g, '<br/>');
     }
   }
 
